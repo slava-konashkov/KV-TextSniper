@@ -14,6 +14,7 @@
 
 import Vision
 import CoreGraphics
+import CoreImage
 import os
 
 final class OCRService {
@@ -30,12 +31,14 @@ final class OCRService {
 
             let request = VNRecognizeTextRequest()
             request.recognitionLevel = .accurate
-            // Language correction applies a language model on top of the raw
-            // recognition result — helpful for prose, harmful for code, paths,
-            // commands, and other symbol-heavy text where the model "corrects"
-            // valid tokens into similar-looking dictionary words. A sniper
-            // tool is used far more for the latter than the former.
-            request.usesLanguageCorrection = false
+            // Language correction applies a dictionary/LM pass on top of the
+            // raw recognition result. On multi-script inputs (e.g. English
+            // code on a system that also has Cyrillic or CJK as preferred
+            // languages) this is what stops Vision from flipping visually
+            // confusable glyphs — Latin `k` → Cyrillic `к`, `e` → `е`, and
+            // so on — into the wrong script, because the LM knows which
+            // letters form valid tokens.
+            request.usesLanguageCorrection = true
 
             // Pick the newest revision available on this OS — revision 3
             // (macOS 13+) adds strong CJK support.
@@ -50,15 +53,15 @@ final class OCRService {
             request.recognitionLanguages = langs
             Log.ocr.notice("recognize: revision=\(request.revision) languages=\(langs.joined(separator: ","), privacy: .public)")
 
-            // Vision's text recogniser is markedly more accurate on larger
-            // glyphs. On HiDPI displays running in "native" mode (a 4K monitor
-            // at 1:1, for instance) CGWindowListCreateImage returns one pixel
-            // per screen point — so 14pt text lands as ~14px tall, right at
-            // the edge of what Vision handles cleanly. A 2× bicubic upscale
-            // recovers a lot of accuracy for effectively zero cost.
-            let ocrImage = Self.upscaledForOCR(image)
+            // Preprocess: Lanczos upscale (cleaner glyph edges than bicubic
+            // on rasterised text) plus a mild unsharp mask to counteract the
+            // inevitable softening. Vision's accuracy on HiDPI-native captures
+            // — where CGWindowListCreateImage returns 1 pixel per screen
+            // point, so 14pt text is only ~14px tall — climbs sharply after
+            // this stage.
+            let ocrImage = Self.preprocessedForOCR(image)
             if ocrImage !== image {
-                Log.ocr.notice("recognize: upscaled \(image.width)x\(image.height) → \(ocrImage.width)x\(ocrImage.height)")
+                Log.ocr.notice("recognize: preprocessed \(image.width)x\(image.height) → \(ocrImage.width)x\(ocrImage.height)")
             }
             let handler = VNImageRequestHandler(cgImage: ocrImage, orientation: .up, options: [:])
 
@@ -79,11 +82,19 @@ final class OCRService {
                 return
             }
 
-            // Join top candidates from each observation; Vision returns them
-            // roughly in reading order (top to bottom, left to right).
-            let lines = observations.compactMap { $0.topCandidates(1).first?.string }
-            let text  = lines.joined(separator: "\n")
-            Log.ocr.notice("recognize: \(observations.count) observation(s), \(text.count) char(s)")
+            // Group observations into reading order: top-to-bottom primary,
+            // left-to-right secondary. Vision's own ordering is mostly good,
+            // but for multi-column layouts (e.g. an IDE screenshot with line
+            // numbers in the gutter and code to the right) it sometimes
+            // returns every number first and every code line afterwards,
+            // producing "1 2 3 … import AppKit import os …" in the output.
+            // Explicit grouping-by-Y stitches them back into real lines.
+            let lines = Self.linesInReadingOrder(observations)
+            let text = lines.map { line in
+                line.compactMap { $0.topCandidates(1).first?.string }
+                    .joined(separator: " ")
+            }.joined(separator: "\n")
+            Log.ocr.notice("recognize: \(observations.count) observation(s), \(lines.count) line(s), \(text.count) char(s)")
             completion(text.isEmpty ? nil : text)
         }
     }
@@ -141,34 +152,64 @@ final class OCRService {
         return ordered
     }
 
-    /// Upscale small captures so Vision sees glyphs at a comfortable pixel
-    /// size. Returns the original image when it's already large enough.
-    private static func upscaledForOCR(_ image: CGImage) -> CGImage {
-        // Fixed 2× scale when the capture is small enough to suggest a HiDPI
-        // display running in native mode (one pixel per screen point). Going
-        // higher than 2× with bicubic starts to visibly soften glyph edges —
-        // the interpolation invents pixels that don't correspond to anything
-        // real — and Vision's accuracy drops off rather than improves.
-        guard image.width < 1500 else { return image }
+    /// Sharpen (and, for small captures, upscale) the image before handing it
+    /// to Vision. Lanczos + unsharp consistently beats CGContext bicubic for
+    /// rasterised text: edges stay crisp instead of softening into grey halos.
+    private static func preprocessedForOCR(_ image: CGImage) -> CGImage {
+        var ci = CIImage(cgImage: image)
 
-        let factor = 2
-        let newWidth = image.width * factor
-        let newHeight = image.height * factor
-
-        let colorSpace = image.colorSpace ?? CGColorSpaceCreateDeviceRGB()
-        guard let ctx = CGContext(
-            data: nil,
-            width: newWidth,
-            height: newHeight,
-            bitsPerComponent: 8,
-            bytesPerRow: 0,
-            space: colorSpace,
-            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-        ) else {
-            return image
+        // 2× Lanczos upscale for small captures — the typical HiDPI-native
+        // case where one screen point is one pixel.
+        if image.width < 1500 {
+            ci = ci.applyingFilter("CILanczosScaleTransform", parameters: [
+                kCIInputScaleKey: 2.0,
+                kCIInputAspectRatioKey: 1.0
+            ])
         }
-        ctx.interpolationQuality = .high
-        ctx.draw(image, in: CGRect(x: 0, y: 0, width: newWidth, height: newHeight))
-        return ctx.makeImage() ?? image
+
+        // Mild unsharp mask. Radius/intensity tuned to crispen typical UI
+        // text (12–18pt body, 10pt code) without introducing ringing on
+        // anti-aliased glyph edges.
+        ci = ci.applyingFilter("CIUnsharpMask", parameters: [
+            kCIInputRadiusKey: 1.2,
+            kCIInputIntensityKey: 0.4
+        ])
+
+        return Self.ciContext.createCGImage(ci, from: ci.extent) ?? image
+    }
+
+    /// Shared Core Image context. Creating one per call is wasteful (each
+    /// constructor spins up a Metal/OpenGL pipeline), and `CIContext` is
+    /// documented as thread-safe for rendering.
+    private static let ciContext = CIContext(options: nil)
+
+    /// Groups Vision observations into lines in natural reading order
+    /// (top → bottom, left → right within each line). Two observations
+    /// land on the same line when their vertical mid-points are closer
+    /// than half the shorter of their heights.
+    private static func linesInReadingOrder(_ observations: [VNRecognizedTextObservation]) -> [[VNRecognizedTextObservation]] {
+        // Vision's boundingBox uses normalised coords with origin at the
+        // bottom-left; greater Y means higher up in the image, which is
+        // earlier in reading order.
+        let sorted = observations.sorted { a, b in
+            let tol = min(a.boundingBox.height, b.boundingBox.height) * 0.5
+            if abs(a.boundingBox.midY - b.boundingBox.midY) < tol {
+                return a.boundingBox.minX < b.boundingBox.minX
+            }
+            return a.boundingBox.midY > b.boundingBox.midY
+        }
+
+        var lines: [[VNRecognizedTextObservation]] = []
+        for obs in sorted {
+            if let anchor = lines.last?.first {
+                let tol = min(anchor.boundingBox.height, obs.boundingBox.height) * 0.5
+                if abs(anchor.boundingBox.midY - obs.boundingBox.midY) < tol {
+                    lines[lines.count - 1].append(obs)
+                    continue
+                }
+            }
+            lines.append([obs])
+        }
+        return lines
     }
 }
