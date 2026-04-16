@@ -114,6 +114,38 @@ If `recognize: perform done` takes many seconds on the *first* capture
 after a fresh install, that's Vision downloading its CJK/script models
 from Apple's servers on demand. Subsequent captures are fast.
 
+### Resetting Screen Recording permission
+
+Debug builds are ad-hoc signed (no Team ID), so macOS TCC often forgets
+its decision between rebuilds — and `CGRequestScreenCaptureAccess()`
+won't re-show the system prompt because it considers the question already
+answered. Symptoms: the `app` log line `screen recording permission:
+DENIED` at launch, captures return only the desktop wallpaper, OCR
+finds no observations.
+
+Clear the stale entry so the prompt reappears:
+
+```bash
+tccutil reset ScreenCapture com.viacheslav.KV-TextSniper
+pkill -x KV-TextSniper        # fully quit any running instance
+```
+
+Relaunch from Xcode. macOS shows the prompt → click *Allow*. Then quit
+and relaunch once more so the running process actually picks up the new
+grant (TCC decisions are read at process start, not live).
+
+If no prompt appears, add the binary by hand: *System Settings → Privacy
+& Security → Screen Recording → +*, and point the picker at
+
+```
+~/Library/Developer/Xcode/DerivedData/KV-TextSniper-*/Build/Products/Debug/KV-TextSniper.app
+```
+
+Toggle it on, then `pkill -x KV-TextSniper` and relaunch.
+
+Permanent fix: assign a Team under *Signing & Capabilities* so the app
+gets a stable code signature; TCC then keeps the grant across rebuilds.
+
 ## Known limitations / future work
 
 - **ScreenCaptureKit migration**: `CGWindowListCreateImage` is deprecated on

@@ -52,6 +52,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // The app lives in the menu bar only — it is not a regular Dock app.
         NSApp.setActivationPolicy(.accessory)
 
+        // Screen Recording permission is mandatory: without it the screen
+        // capture API returns just the desktop picture instead of real window
+        // content, which silently turns every OCR attempt into "no text found".
+        if CGPreflightScreenCaptureAccess() {
+            Log.app.notice("screen recording permission: granted")
+        } else {
+            Log.app.error("screen recording permission: DENIED — OCR will capture only the wallpaper. Grant it in System Settings → Privacy & Security → Screen Recording, then relaunch.")
+            // Shows the system prompt the first time; a no-op on subsequent
+            // launches if the user has already decided one way or the other.
+            _ = CGRequestScreenCaptureAccess()
+        }
+
         setupStatusItem()
 
         hotkeyManager.onTrigger = { [weak self] in
@@ -152,7 +164,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             Log.capture.error("dumpCapture: PNG representation failed")
             return
         }
-        let url = URL(fileURLWithPath: "/tmp/kvts-capture.png")
+        // Sandboxed apps cannot write to /tmp — use the app's container temp
+        // instead. The exact path is logged so it can be `open`-ed from a
+        // Terminal (which has no sandbox of its own).
+        let url = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("kvts-capture.png")
         do {
             try data.write(to: url)
             Log.capture.notice("dumpCapture: wrote \(url.path, privacy: .public) (\(data.count) bytes)")
