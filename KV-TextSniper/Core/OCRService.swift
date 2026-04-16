@@ -43,9 +43,19 @@ final class OCRService {
 
             let langs = Self.languages(for: request)
             request.recognitionLanguages = langs
-            Log.ocr.notice("recognize: revision=\(request.revision) languages=\(langs.count)")
+            Log.ocr.notice("recognize: revision=\(request.revision) languages=\(langs.joined(separator: ","), privacy: .public)")
 
-            let handler = VNImageRequestHandler(cgImage: image, orientation: .up, options: [:])
+            // Vision's text recogniser is markedly more accurate on larger
+            // glyphs. On HiDPI displays running in "native" mode (a 4K monitor
+            // at 1:1, for instance) CGWindowListCreateImage returns one pixel
+            // per screen point — so 14pt text lands as ~14px tall, right at
+            // the edge of what Vision handles cleanly. A 2× bicubic upscale
+            // recovers a lot of accuracy for effectively zero cost.
+            let ocrImage = Self.upscaledForOCR(image)
+            if ocrImage !== image {
+                Log.ocr.notice("recognize: upscaled \(image.width)x\(image.height) → \(ocrImage.width)x\(ocrImage.height)")
+            }
+            let handler = VNImageRequestHandler(cgImage: ocrImage, orientation: .up, options: [:])
 
             let perfStart = CFAbsoluteTimeGetCurrent()
             do {
@@ -73,11 +83,18 @@ final class OCRService {
         }
     }
 
-    /// Returns the set of languages supported by `request` on the current OS,
-    /// ordered so that the user's preferred languages come first, followed by
-    /// common CJK scripts, followed by everything else. Feeding Vision an
-    /// unsupported language string causes it to throw, so we always filter
-    /// against `supportedRecognitionLanguages`.
+    /// Returns the language list to feed Vision, in priority order — seeded
+    /// exclusively from the user's system-wide Preferred Languages list.
+    ///
+    /// Vision weights results by this order (first wins ties), and a captured
+    /// region is overwhelmingly likely to contain text in a single language —
+    /// almost always the user's primary one. Padding the list with unrelated
+    /// scripts (Chinese, Arabic, Thai, …) just makes Vision split probability
+    /// mass across glyphs that don't exist in the image, which measurably
+    /// degrades accuracy for Latin/Cyrillic text.
+    ///
+    /// Matching is loose: a preferred tag like `"ru"` resolves to Vision's
+    /// `"ru-RU"`, `"zh-Hans"` resolves to `"zh-Hans-CN"`, etc.
     private static func languages(for request: VNRecognizeTextRequest) -> [String] {
         let supported: [String]
         if #available(macOS 12.0, *) {
@@ -91,20 +108,60 @@ final class OCRService {
 
         guard !supported.isEmpty else { return ["en-US"] }
 
-        let cjkFallback = ["zh-Hans", "zh-Hant", "ja-JP", "ko-KR"]
         var ordered: [String] = []
 
-        for preferred in Locale.preferredLanguages {
+        func addMatch(for preferred: String) {
             if supported.contains(preferred), !ordered.contains(preferred) {
                 ordered.append(preferred)
+                return
+            }
+            let base = preferred.split(separator: "-").first.map(String.init) ?? preferred
+            if let match = supported.first(where: { $0 == base || $0.hasPrefix(base + "-") }),
+               !ordered.contains(match) {
+                ordered.append(match)
             }
         }
-        for lang in cjkFallback where supported.contains(lang) && !ordered.contains(lang) {
-            ordered.append(lang)
+
+        for preferred in Locale.preferredLanguages {
+            addMatch(for: preferred)
         }
-        for lang in supported where !ordered.contains(lang) {
-            ordered.append(lang)
+
+        // Safety net only — fires when none of the user's preferred languages
+        // is supported by Vision on this OS (rare; usually a new locale on an
+        // older macOS). Without this we'd hand Vision an empty array.
+        if ordered.isEmpty {
+            ordered.append(supported.contains("en-US") ? "en-US" : supported[0])
         }
+
         return ordered
+    }
+
+    /// Upscale small captures so Vision sees glyphs at a comfortable pixel
+    /// size. Returns the original image when it's already large enough.
+    private static func upscaledForOCR(_ image: CGImage) -> CGImage {
+        // 1400px wide is the threshold above which Vision's accuracy plateaus
+        // for typical UI text sizes (12–18pt). Below that we scale up to ≥2×.
+        let minTargetWidth = 1400
+        guard image.width < minTargetWidth else { return image }
+
+        let factor = max(2, (minTargetWidth + image.width - 1) / image.width)
+        let newWidth = image.width * factor
+        let newHeight = image.height * factor
+
+        let colorSpace = image.colorSpace ?? CGColorSpaceCreateDeviceRGB()
+        guard let ctx = CGContext(
+            data: nil,
+            width: newWidth,
+            height: newHeight,
+            bitsPerComponent: 8,
+            bytesPerRow: 0,
+            space: colorSpace,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else {
+            return image
+        }
+        ctx.interpolationQuality = .high
+        ctx.draw(image, in: CGRect(x: 0, y: 0, width: newWidth, height: newHeight))
+        return ctx.makeImage() ?? image
     }
 }
