@@ -9,12 +9,12 @@ import os
 
 /// Shared logger factories. Every important step in the capture/OCR pipeline
 /// emits a log line so issues in the field are diagnosable via Console.app
-/// (filter by subsystem `com.viacheslav.KV-TextSniper`) or via Terminal:
+/// (filter by subsystem `com.konashkov.KV-TextSniper`) or via Terminal:
 ///
-///     log stream --predicate 'subsystem == "com.viacheslav.KV-TextSniper"' --level debug
+///     log stream --predicate 'subsystem == "com.konashkov.KV-TextSniper"' --level debug
 ///
 enum Log {
-    private static let subsystem = "com.viacheslav.KV-TextSniper"
+    private static let subsystem = "com.konashkov.KV-TextSniper"
     static let app       = Logger(subsystem: subsystem, category: "app")
     static let hotkey    = Logger(subsystem: subsystem, category: "hotkey")
     static let selection = Logger(subsystem: subsystem, category: "selection")
@@ -40,7 +40,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Single-instance guard. A second copy would register the same global
         // hotkey and spawn a competing overlay when it fires, so bail before
         // any side effects. exit(0) is safe — nothing has been acquired yet.
-        let bundleID = Bundle.main.bundleIdentifier ?? "com.viacheslav.KV-TextSniper"
+        let bundleID = Bundle.main.bundleIdentifier ?? "com.konashkov.KV-TextSniper"
         let currentPID = NSRunningApplication.current.processIdentifier
         let others = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID)
             .filter { $0.processIdentifier != currentPID }

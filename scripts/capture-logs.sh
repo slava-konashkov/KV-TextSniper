@@ -33,7 +33,7 @@ echo
 # `log stream` writes to stdout; `tee` also echoes to the terminal so the
 # user can see activity live. `--level debug` includes all levels.
 log stream \
-    --predicate 'subsystem == "com.viacheslav.KV-TextSniper"' \
+    --predicate 'subsystem == "com.konashkov.KV-TextSniper"' \
     --level debug \
     --style compact \
     | tee "$LOG_FILE"

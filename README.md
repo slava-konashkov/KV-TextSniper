@@ -61,7 +61,7 @@ Shortcuts are stored in `UserDefaults` as `KVTS.shortcut`.
 ## Preparing for the App Store
 
 1. **Bundle identifier**: edit `PRODUCT_BUNDLE_IDENTIFIER` in *Build Settings*
-   (default: `com.viacheslav.KV-TextSniper`). Apple requires it to match the
+   (default: `com.konashkov.KV-TextSniper`). Apple requires it to match the
    identifier registered on *App Store Connect*.
 2. **App icon**: drop 16/32/128/256/512-pt @1×/@2× PNGs into
    `KV-TextSniper/Assets.xcassets/AppIcon.appiconset/` and update
@@ -80,17 +80,17 @@ Shortcuts are stored in `UserDefaults` as `KVTS.shortcut`.
 ## Debugging
 
 The app emits structured `os.Logger` output under subsystem
-`com.viacheslav.KV-TextSniper` with five categories: `app`, `hotkey`,
+`com.konashkov.KV-TextSniper` with five categories: `app`, `hotkey`,
 `selection`, `capture`, `ocr`.
 
 Stream all logs live from a Terminal while the app is running:
 
 ```bash
-log stream --predicate 'subsystem == "com.viacheslav.KV-TextSniper"' --level debug
+log stream --predicate 'subsystem == "com.konashkov.KV-TextSniper"' --level debug
 ```
 
 Or open **Console.app**, hit *Start Streaming*, and enter
-`subsystem:com.viacheslav.KV-TextSniper` in the search field.
+`subsystem:com.konashkov.KV-TextSniper` in the search field.
 
 A healthy capture produces something like:
 
@@ -126,7 +126,7 @@ finds no observations.
 Clear the stale entry so the prompt reappears:
 
 ```bash
-tccutil reset ScreenCapture com.viacheslav.KV-TextSniper
+tccutil reset ScreenCapture com.konashkov.KV-TextSniper
 pkill -x KV-TextSniper        # fully quit any running instance
 ```
 
