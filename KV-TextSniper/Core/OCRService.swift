@@ -30,7 +30,12 @@ final class OCRService {
 
             let request = VNRecognizeTextRequest()
             request.recognitionLevel = .accurate
-            request.usesLanguageCorrection = true
+            // Language correction applies a language model on top of the raw
+            // recognition result — helpful for prose, harmful for code, paths,
+            // commands, and other symbol-heavy text where the model "corrects"
+            // valid tokens into similar-looking dictionary words. A sniper
+            // tool is used far more for the latter than the former.
+            request.usesLanguageCorrection = false
 
             // Pick the newest revision available on this OS — revision 3
             // (macOS 13+) adds strong CJK support.
@@ -139,12 +144,14 @@ final class OCRService {
     /// Upscale small captures so Vision sees glyphs at a comfortable pixel
     /// size. Returns the original image when it's already large enough.
     private static func upscaledForOCR(_ image: CGImage) -> CGImage {
-        // 1400px wide is the threshold above which Vision's accuracy plateaus
-        // for typical UI text sizes (12–18pt). Below that we scale up to ≥2×.
-        let minTargetWidth = 1400
-        guard image.width < minTargetWidth else { return image }
+        // Fixed 2× scale when the capture is small enough to suggest a HiDPI
+        // display running in native mode (one pixel per screen point). Going
+        // higher than 2× with bicubic starts to visibly soften glyph edges —
+        // the interpolation invents pixels that don't correspond to anything
+        // real — and Vision's accuracy drops off rather than improves.
+        guard image.width < 1500 else { return image }
 
-        let factor = max(2, (minTargetWidth + image.width - 1) / image.width)
+        let factor = 2
         let newWidth = image.width * factor
         let newHeight = image.height * factor
 
