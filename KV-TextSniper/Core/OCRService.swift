@@ -49,9 +49,25 @@ final class OCRService {
                 }
             }
 
-            let langs = Self.languages(for: request)
-            request.recognitionLanguages = langs
-            Log.ocr.notice("recognize: revision=\(request.revision) languages=\(langs.joined(separator: ","), privacy: .public)")
+            // Language handling has two modes:
+            //
+            //  - macOS 13+: let Vision auto-detect the dominant script in the
+            //    image and pick the matching model. This matters for users who
+            //    don't list a particular language in System Preferred Languages
+            //    (common for CJK: the person types Chinese from a Russian-or-
+            //    English system). Providing an explicit priority list would
+            //    force Vision to read Chinese glyphs through an English LM and
+            //    output Latin-looking garbage.
+            //
+            //  - macOS 12: no auto-detect; fall back to the priority list.
+            if #available(macOS 13.0, *) {
+                request.automaticallyDetectsLanguage = true
+                Log.ocr.notice("recognize: revision=\(request.revision) auto-detect=on")
+            } else {
+                let langs = Self.languages(for: request)
+                request.recognitionLanguages = langs
+                Log.ocr.notice("recognize: revision=\(request.revision) languages=\(langs.joined(separator: ","), privacy: .public)")
+            }
 
             // Preprocess: Lanczos upscale (cleaner glyph edges than bicubic
             // on rasterised text) plus a mild unsharp mask to counteract the
@@ -124,6 +140,11 @@ final class OCRService {
 
         guard !supported.isEmpty else { return ["en-US"] }
 
+        // One-shot log of what Vision actually reports as supported — the
+        // exact tags vary by macOS version (e.g. "zh-Hans" vs "zh-Hans-CN"),
+        // and a mismatch breaks naive contains-checks below.
+        Log.ocr.notice("recognize: supported languages (\(supported.count)) = \(supported.joined(separator: ","), privacy: .public)")
+
         var ordered: [String] = []
 
         func addMatch(for preferred: String) {
@@ -140,6 +161,18 @@ final class OCRService {
 
         for preferred in Locale.preferredLanguages {
             addMatch(for: preferred)
+        }
+
+        // CJK fallback. Han ideographs, kana and hangul look nothing at all
+        // like Latin or Cyrillic glyphs, so adding these to the tail of the
+        // list has no measurable cost when the capture is non-CJK — Vision
+        // simply never assigns probability to them. But when the capture IS
+        // CJK and the user hasn't listed a CJK language in System Preferred
+        // Languages, this turns "garbage-out" into proper recognition. Cost
+        // of getting it wrong is asymmetric, so we always include them.
+        // Uses addMatch so "zh-Hans" also picks up Vision's "zh-Hans-CN".
+        for lang in ["zh-Hans", "zh-Hant", "ja-JP", "ko-KR"] {
+            addMatch(for: lang)
         }
 
         // Safety net only — fires when none of the user's preferred languages
