@@ -6,6 +6,7 @@
 import SwiftUI
 import AppKit
 import Carbon.HIToolbox
+import ServiceManagement
 
 struct SettingsView: View {
     @EnvironmentObject var hotkeyManager: HotkeyManager
@@ -88,6 +89,20 @@ struct SettingsView: View {
 
             Divider()
 
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Startup")
+                    .font(.system(size: 13, weight: .medium))
+                if #available(macOS 13.0, *) {
+                    LaunchAtLoginToggle()
+                } else {
+                    Text("Launch-at-login requires macOS 13 or later.")
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                }
+            }
+
+            Divider()
+
             VStack(alignment: .leading, spacing: 6) {
                 Label("OCR works for any language — Latin, Cyrillic, Chinese, Japanese, Korean and more.", systemImage: "globe")
                     .font(.system(size: 11))
@@ -100,6 +115,70 @@ struct SettingsView: View {
             Spacer(minLength: 0)
         }
         .padding(24)
+    }
+}
+
+// MARK: - Launch at login
+
+@available(macOS 13.0, *)
+private struct LaunchAtLoginToggle: View {
+    @State private var isEnabled: Bool = SMAppService.mainApp.status == .enabled
+    @State private var errorMessage: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Toggle(isOn: $isEnabled) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Launch at login")
+                        .font(.system(size: 12))
+                    Text("Start KV-TextSniper automatically when you log in to your Mac.")
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                }
+            }
+            .toggleStyle(.checkbox)
+            .onChange(of: isEnabled) { newValue in
+                apply(newValue)
+            }
+
+            if let message = errorMessage {
+                HStack(alignment: .top, spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundColor(.orange)
+                    Text(message)
+                }
+                .font(.system(size: 11))
+                .foregroundColor(.primary)
+                .padding(8)
+                .background(
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(Color.orange.opacity(0.12))
+                )
+            }
+        }
+        // Re-sync when the view appears in case the state was changed by
+        // the user in System Settings → General → Login Items behind our
+        // back.
+        .onAppear {
+            isEnabled = SMAppService.mainApp.status == .enabled
+        }
+    }
+
+    private func apply(_ enabled: Bool) {
+        do {
+            if enabled {
+                try SMAppService.mainApp.register()
+            } else {
+                try SMAppService.mainApp.unregister()
+            }
+            errorMessage = nil
+        } catch {
+            // Flip the toggle back so the UI reflects the actual state.
+            errorMessage = "Couldn't \(enabled ? "enable" : "disable") launch-at-login: \(error.localizedDescription). Try from System Settings → General → Login Items."
+            DispatchQueue.main.async {
+                isEnabled = SMAppService.mainApp.status == .enabled
+            }
+        }
     }
 }
 
