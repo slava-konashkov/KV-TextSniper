@@ -31,6 +31,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var statusItem: NSStatusItem?
     private var selectionController: ScreenSelectionController?
+    private var settingsWindow: NSWindow?
 
     // MARK: - Lifecycle
 
@@ -70,6 +71,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.startCapture()
         }
         hotkeyManager.registerStoredShortcut()
+
+        // Revert activation policy back to .accessory whenever the Settings
+        // window (or any normal-level user window) closes — openSettings()
+        // raises us to .regular so AppKit will actually summon the window,
+        // and without this observer the Dock icon would linger afterwards.
+        NotificationCenter.default.addObserver(
+            forName: NSWindow.willCloseNotification,
+            object: nil,
+            queue: .main
+        ) { _ in
+            // The window is still in NSApp.windows at willClose — defer
+            // one runloop turn so the visibility check sees the post-close
+            // state.
+            DispatchQueue.main.async {
+                guard NSApp.activationPolicy() == .regular else { return }
+                let stillOpen = NSApp.windows.contains { window in
+                    window.isVisible && window.level == .normal
+                }
+                if !stillOpen {
+                    NSApp.setActivationPolicy(.accessory)
+                }
+            }
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -122,13 +146,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func openSettings() {
+        // We used to rely on SwiftUI's `Settings { … }` scene plus a
+        // `showSettingsWindow:` responder-chain action, but for LSUIElement
+        // (.accessory) apps that action reports "dispatched = true" while
+        // never actually creating a window. Managing a plain NSWindow
+        // ourselves around an NSHostingController is both simpler and
+        // reliable across macOS versions.
+        NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
-        // macOS 14+ uses a different selector name than earlier versions.
-        if #available(macOS 14.0, *) {
-            NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
-        } else {
-            NSApp.sendAction(Selector(("showPreferencesWindow:")), to: nil, from: nil)
+
+        if let window = settingsWindow {
+            window.makeKeyAndOrderFront(nil)
+            return
         }
+
+        let root = SettingsView().environmentObject(hotkeyManager)
+        let hosting = NSHostingController(rootView: root)
+        let window = NSWindow(contentViewController: hosting)
+        window.styleMask = [.titled, .closable, .miniaturizable]
+        window.title = "KV-TextSniper — Settings"
+        window.setContentSize(NSSize(width: 460, height: 400))
+        window.center()
+        // Keep the window alive across hide/close so we can just re-show it
+        // next time the user clicks the menu item.
+        window.isReleasedWhenClosed = false
+        settingsWindow = window
+        window.makeKeyAndOrderFront(nil)
     }
 
     // MARK: - Capture flow
