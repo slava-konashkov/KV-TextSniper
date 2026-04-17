@@ -49,6 +49,24 @@ struct SettingsView: View {
                 Text("Click the field and press the key combination you want.")
                     .font(.system(size: 11))
                     .foregroundColor(.secondary)
+
+                // Surface the exact reason Carbon refused to register the
+                // shortcut so the user knows they need to either free it
+                // up in System Settings or pick a different one.
+                if let error = hotkeyManager.registrationError {
+                    HStack(alignment: .top, spacing: 6) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundColor(.orange)
+                        Text(error)
+                    }
+                    .font(.system(size: 11))
+                    .foregroundColor(.primary)
+                    .padding(8)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(Color.orange.opacity(0.12))
+                    )
+                }
             }
 
             Divider()

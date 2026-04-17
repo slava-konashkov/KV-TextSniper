@@ -105,6 +105,12 @@ final class HotkeyManager: ObservableObject {
     /// Published so the UI can redraw when the shortcut changes.
     @Published private(set) var shortcut: Shortcut = HotkeyManager.loadShortcut()
 
+    /// Populated when the most recent registration attempt failed — typically
+    /// because the chosen combination is already owned by macOS (screenshots
+    /// ⇧⌘3/4/5, Spotlight ⌘Space, Mission Control, …) or by another app.
+    /// `nil` while the hotkey is registered successfully.
+    @Published private(set) var registrationError: String?
+
     // MARK: - Carbon plumbing
 
     private var eventHandlerRef: EventHandlerRef?
@@ -149,7 +155,7 @@ final class HotkeyManager: ObservableObject {
         // Capture self via an opaque pointer so the C callback can reach back.
         let selfPtr = Unmanaged.passUnretained(self).toOpaque()
 
-        InstallEventHandler(
+        let handlerStatus = InstallEventHandler(
             GetApplicationEventTarget(),
             { (_, event, userData) -> OSStatus in
                 guard let userData = userData, let event = event else { return noErr }
@@ -179,9 +185,15 @@ final class HotkeyManager: ObservableObject {
             &eventHandlerRef
         )
 
+        if handlerStatus != noErr {
+            Log.hotkey.error("InstallEventHandler failed: OSStatus=\(handlerStatus)")
+            registrationError = "Couldn't install the Carbon event handler (OSStatus \(handlerStatus))."
+            return
+        }
+
         let hkID = EventHotKeyID(signature: signature, id: identifier)
         var ref: EventHotKeyRef?
-        RegisterEventHotKey(
+        let registerStatus = RegisterEventHotKey(
             shortcut.keyCode,
             Self.carbonModifierFlags(from: shortcut.modifierFlags),
             hkID,
@@ -189,7 +201,32 @@ final class HotkeyManager: ObservableObject {
             0,
             &ref
         )
+
+        if registerStatus != noErr {
+            // -9878 = eventHotKeyExistsErr (taken by another Carbon client,
+            // or reserved by macOS for a system shortcut like ⇧⌘3/4/5,
+            // ⌘Space, Mission Control, Dictation, etc.).
+            Log.hotkey.error("RegisterEventHotKey failed for \(shortcut.displayString, privacy: .public): OSStatus=\(registerStatus)")
+            hotKeyRef = nil
+            registrationError = Self.friendlyError(for: registerStatus, shortcut: shortcut)
+            return
+        }
+
         hotKeyRef = ref
+        registrationError = nil
+    }
+
+    private static func friendlyError(for status: OSStatus, shortcut: Shortcut) -> String {
+        switch status {
+        case -9878:
+            // eventHotKeyExistsErr
+            return "\(shortcut.displayString) is already taken by macOS or another app. Free it up in System Settings → Keyboard → Keyboard Shortcuts, or pick a different combination."
+        case -9879:
+            // eventHotKeyInvalidErr
+            return "\(shortcut.displayString) isn't a valid shortcut Carbon can register."
+        default:
+            return "Couldn't register \(shortcut.displayString) (OSStatus \(status))."
+        }
     }
 
     private static func carbonModifierFlags(from flags: NSEvent.ModifierFlags) -> UInt32 {
