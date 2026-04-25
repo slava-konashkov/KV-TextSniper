@@ -1,6 +1,6 @@
 # Privacy Policy — KV-TextSniper
 
-_Last updated: 2026-04-24_
+_Last updated: 2026-04-25_
 
 KV-TextSniper is a macOS menu-bar utility that captures a user-selected
 region of the screen, runs optical character recognition on it, and
