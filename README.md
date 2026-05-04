@@ -1,16 +1,16 @@
-# KV-TextSniper
+# KV-TextCatcher
 
 Menu-bar OCR for macOS. Press a hotkey, drag a region, get the text in your clipboard.
 
 <p align="center">
-  <img src="images/select-text.png" alt="Selecting text on screen with KV-TextSniper" width="820">
+  <img src="images/select-text.png" alt="Selecting text on screen with KV-TextCatcher" width="820">
 </p>
 
 ## Install
 
-[**⬇ Download KV-TextSniper.dmg**](https://slava-konashkov.github.io/KV-TextSniper/KV-TextSniper.dmg) (always the latest, ≈700 KB).
+[**⬇ Download KV-TextCatcher.dmg**](https://slava-konashkov.github.io/KV-TextCatcher/KV-TextCatcher.dmg) (always the latest, ≈700 KB).
 
-Drag `KV-TextSniper.app` into `/Applications`, launch, and grant **Screen Recording** permission in *System Settings → Privacy & Security → Screen Recording* the first time you capture. The DMG is signed with a Developer ID and notarised by Apple — no Gatekeeper warning, no `xattr` workaround.
+Drag `KV-TextCatcher.app` into `/Applications`, launch, and grant **Screen Recording** permission in *System Settings → Privacy & Security → Screen Recording* the first time you capture. The DMG is signed with a Developer ID and notarised by Apple — no Gatekeeper warning, no `xattr` workaround.
 
 The default hotkey is **⌘⇧9**. Change it in **Settings…** from the menu-bar menu.
 
@@ -35,7 +35,7 @@ Cross-screen alignment guides at the cursor make it easy to align the rectangle 
 
 ## When OCR fails
 
-OCR works best on text that's at least ~12 pt and has reasonable contrast against its background. If recognition fails (low contrast, tiny text, decorative font, heavy compression artefacts), KV-TextSniper shows a brief failure banner and discards the capture — nothing else happens.
+OCR works best on text that's at least ~12 pt and has reasonable contrast against its background. If recognition fails (low contrast, tiny text, decorative font, heavy compression artefacts), KV-TextCatcher shows a brief failure banner and discards the capture — nothing else happens.
 
 <p align="center">
   <img src="images/failed.png" alt="Recognition failed banner" width="320">
@@ -49,7 +49,7 @@ OCR works best on text that's at least ~12 pt and has reasonable contrast agains
 
 ## Privacy
 
-The app makes **no** network calls, has no accounts, and stores nothing beyond your selected hotkey + a couple of toggles in `UserDefaults`. Captured pixels are processed in memory by Apple's Vision framework on your Mac and discarded. Full policy: [PRIVACY.html](https://slava-konashkov.github.io/KV-TextSniper/PRIVACY.html).
+The app makes **no** network calls, has no accounts, and stores nothing beyond your selected hotkey + a couple of toggles in `UserDefaults`. Captured pixels are processed in memory by Apple's Vision framework on your Mac and discarded. Full policy: [PRIVACY.html](https://slava-konashkov.github.io/KV-TextCatcher/PRIVACY.html).
 
 ---
 

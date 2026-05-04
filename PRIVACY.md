@@ -1,8 +1,8 @@
-# Privacy Policy — KV-TextSniper
+# Privacy Policy — KV-TextCatcher
 
 _Last updated: 2026-04-25_
 
-KV-TextSniper is a macOS menu-bar utility that captures a user-selected
+KV-TextCatcher is a macOS menu-bar utility that captures a user-selected
 region of the screen, runs optical character recognition on it, and
 places the recognised text on the clipboard.
 
@@ -56,5 +56,5 @@ at the same URL.
 ## Contact
 
 Questions or concerns: open an issue at
-<https://github.com/slava-konashkov/KV-TextSniper/issues> or email
+<https://github.com/slava-konashkov/KV-TextCatcher/issues> or email
 `slava@konashkov.com`.
